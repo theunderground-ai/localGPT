@@ -1,7 +1,11 @@
+from queue import Queue
 import os
 import logging
+from threading import Thread
+import time
 import click
 import torch
+from QueueCallbackHandler import stream
 import utils
 from langchain.chains import RetrievalQA
 from langchain.embeddings import HuggingFaceInstructEmbeddings
@@ -38,7 +42,7 @@ from constants import (
 )
 
 
-def load_model(device_type, model_id, model_basename=None, LOGGING=logging):
+def load_model(device_type, model_id, model_basename=None, LOGGING=logging, queue: Queue=None):
     """
     Select a model for text generation using the HuggingFace library.
     If you are running this for the first time, it will download a model for you.
@@ -61,7 +65,7 @@ def load_model(device_type, model_id, model_basename=None, LOGGING=logging):
 
     if model_basename is not None:
         if ".gguf" in model_basename.lower():
-            llm = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING)
+            llm = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING, queue)
             return llm
         elif ".ggml" in model_basename.lower():
             model, tokenizer = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING)
@@ -96,7 +100,7 @@ def load_model(device_type, model_id, model_basename=None, LOGGING=logging):
     return local_llm
 
 
-def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama"):
+def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama", queue: Queue=None):
     """
     Initializes and returns a retrieval-based Question Answering (QA) pipeline.
 
@@ -135,7 +139,7 @@ def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama"):
     prompt, memory = get_prompt_template(promptTemplate_type=promptTemplate_type, history=use_history)
 
     # load the llm pipeline
-    llm = load_model(device_type, model_id=MODEL_ID, model_basename=MODEL_BASENAME, LOGGING=logging)
+    llm = load_model(device_type, model_id=MODEL_ID, model_basename=MODEL_BASENAME, LOGGING=logging, queue=queue)
 
     if use_history:
         qa = RetrievalQA.from_chain_type(
@@ -217,7 +221,13 @@ def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama"):
     help="whether to save Q&A pairs to a CSV file (Default is False)",
 )
 
-def main(device_type, show_sources, use_history, model_type, save_qa):
+@click.option(
+    "--stream_response",
+    is_flag=True,
+    help="Whether or not to stream the response - Currently only works with GGUF models"
+)
+
+def main(device_type, show_sources, use_history, model_type, save_qa, stream_response):
     """
     Implements the main information retrieval task for a localGPT.
 
@@ -246,29 +256,54 @@ def main(device_type, show_sources, use_history, model_type, save_qa):
     if not os.path.exists(MODELS_PATH):
         os.mkdir(MODELS_PATH)
 
-    qa = retrieval_qa_pipline(device_type, use_history, promptTemplate_type=model_type)
+    queue=None
+    if stream_response:
+        queue = Queue()
+    qa = retrieval_qa_pipline(device_type, use_history, promptTemplate_type=model_type, queue=queue)
+
+    def qaFunc(query):
+        qa(query)
+
     # Interactive questions and answers
     while True:
         query = input("\nEnter a query: ")
         if query == "exit":
             break
-        # Get the answer from the chain
-        res = qa(query)
-        answer, docs = res["result"], res["source_documents"]
 
-        # Print the result
-        print("\n\n> Question:")
-        print(query)
-        print("\n> Answer:")
-        print(answer)
+        if not stream_response:
+            # Get the answer from the chain
+            res = qa(query)
+            answer, docs = res["result"], res["source_documents"]
 
-        if show_sources:  # this is a flag that you can set to disable showing answers.
-            # # Print the relevant sources used for the answer
-            print("----------------------------------SOURCE DOCUMENTS---------------------------")
-            for document in docs:
-                print("\n> " + document.metadata["source"] + ":")
-                print(document.page_content)
-            print("----------------------------------SOURCE DOCUMENTS---------------------------")
+            # Print the result
+            print("\n\n> Question:")
+            print(query)
+            print("\n> Answer:")
+            print(answer)
+
+            if show_sources:  # this is a flag that you can set to disable showing answers.
+                # # Print the relevant sources used for the answer
+                print("----------------------------------SOURCE DOCUMENTS---------------------------")
+                for document in docs:
+                    print("\n> " + document.metadata["source"] + ":")
+                    print(document.page_content)
+                print("----------------------------------SOURCE DOCUMENTS---------------------------")
+        else:
+            start = time.time()
+            first = 0
+            last = 0
+            answer = ''
+            for item in stream(qaFunc, query, queue):
+                if first == 0:
+                    first = time.time() - start
+                    print(f'first token in: {first}s')
+                last = time.time() - start
+                # print(f'got stream item: {item}')
+                print(item['data'], end="", flush=True)
+                answer = f"{answer}{item['data']}"
+
+            print(f"Request completed, first token: {first}s, final: {last}s")
+
         
         # Log the Q&A to CSV only if save_qa is True
         if save_qa:

@@ -1,3 +1,5 @@
+from queue import Queue
+import traceback
 import torch
 from auto_gptq import AutoGPTQForCausalLM
 from huggingface_hub import hf_hub_download
@@ -9,10 +11,12 @@ from transformers import (
     LlamaForCausalLM,
     LlamaTokenizer,
 )
+from langchain.callbacks.manager import CallbackManager
+from QueueCallbackHandler import QueueCallbackHandler
 from constants import CONTEXT_WINDOW_SIZE, MAX_NEW_TOKENS, N_GPU_LAYERS, N_BATCH, MODELS_PATH
 
 
-def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, logging):
+def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, logging, queue: Queue=None):
     """
     Load a GGUF/GGML quantized model using LlamaCpp.
 
@@ -53,10 +57,20 @@ def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, loggin
         if device_type.lower() == "cuda":
             kwargs["n_gpu_layers"] = N_GPU_LAYERS  # set this based on your GPU
 
-        return LlamaCpp(**kwargs)
-    except:
+        kwargs['stream'] = True
+
+        # Streaming support
+        if queue is not None:
+            kwargs['callback_manager'] = CallbackManager([QueueCallbackHandler(queue)])
+
+        llm = LlamaCpp(**kwargs)
+        return llm
+    except Exception as e:
         if "ggml" in model_basename:
             logging.INFO("If you were using GGML model, LLAMA-CPP Dropped Support, Use GGUF Instead")
+        else:            
+            traceback.print_exc() 
+            raise e
         return None
 
 

@@ -27,7 +27,7 @@ python -m bitsandbytes
 ✔
 
 @REM but if it does 😠
-python -m pip -r req_bitsandbytes.txt
+python -m pip install -r req_bitsandbytes.txt
 python -m bitsandbytes 
 🙏
 ```

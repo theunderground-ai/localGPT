@@ -127,6 +127,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv*
 env/
 venv/
 ENV/
@@ -166,4 +167,6 @@ cython_debug/
 
 #MacOS
 .DS_Store
-SOURCE_DOCUMENTS/.DS_Store
+
+# Just ignore source docs
+SOURCE_DOCUMENTS/*

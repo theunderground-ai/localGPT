@@ -19,6 +19,7 @@ python -m pip install llama-cpp-python==0.2.19 --force-reinstall --upgrade --no-
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
 
 @REM fixes auto-gptq install error
+set DISTUTILS_USE_SDK=1
 python -m pip install -r requirements.txt
 
 @REM This shouldn't report any errors

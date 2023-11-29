@@ -9,7 +9,7 @@ Next install CUDA 12.3+
 python -m venv .venv
 call .venv\Scripts\activate
 python -m pip install -U pip
-python -m pip install scikit-build
+python -m pip install ninja scikit-build-core[pyproject] scikit-build
 
 @REM Adjust for your VS edition, eg BuildTools, Professional instead of Community
 call "c:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"

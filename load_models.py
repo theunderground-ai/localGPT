@@ -1,3 +1,4 @@
+import logging
 from queue import Queue
 import traceback
 import torch
@@ -15,8 +16,11 @@ from langchain.callbacks.manager import CallbackManager
 from QueueCallbackHandler import QueueCallbackHandler
 from constants import CONTEXT_WINDOW_SIZE, MAX_NEW_TOKENS, N_GPU_LAYERS, N_BATCH, MODELS_PATH
 
+from llama_cpp import __version__ as LLAMA_CPP_VERSION
 
-def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, logging, queue: Queue=None):
+LLAMA_CPP_MIN_STREAMING_VERSION = "0.2.19"
+
+def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, logging: logging, queue: Queue=None):
     """
     Load a GGUF/GGML quantized model using LlamaCpp.
 
@@ -37,41 +41,40 @@ def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, loggin
     - The function uses the `hf_hub_download` function to download the model from the HuggingFace Hub.
     - The number of GPU layers is set based on the device type.
     """
+    
+    logging.info("Using Llamacpp for GGUF/GGML quantized models")
+    if queue is not None and LLAMA_CPP_VERSION < LLAMA_CPP_MIN_STREAMING_VERSION:
+        raise Exception(f"Earlier versions of llama_cpp don't support streaming. Current: {LLAMA_CPP_VERSION}. Known working version: ${LLAMA_CPP_MIN_STREAMING_VERSION}")
 
-    try:
-        logging.info("Using Llamacpp for GGUF/GGML quantized models")
-        model_path = hf_hub_download(
-            repo_id=model_id,
-            filename=model_basename,
-            resume_download=True,
-            cache_dir=MODELS_PATH,
-        )
-        kwargs = {
-            "model_path": model_path,
-            "n_ctx": CONTEXT_WINDOW_SIZE,
-            "max_tokens": MAX_NEW_TOKENS,
-            "n_batch": N_BATCH,  # set this based on your GPU & CPU RAM
-        }
-        if device_type.lower() == "mps":
-            kwargs["n_gpu_layers"] = 1
-        if device_type.lower() == "cuda":
-            kwargs["n_gpu_layers"] = N_GPU_LAYERS  # set this based on your GPU
+    model_path = hf_hub_download(
+        repo_id=model_id,
+        filename=model_basename,
+        resume_download=True,
+        cache_dir=MODELS_PATH,
+    )
+    kwargs = {
+        "model_path": model_path,
+        "n_ctx": CONTEXT_WINDOW_SIZE,
+        "max_tokens": MAX_NEW_TOKENS,
+        "n_batch": N_BATCH,  # set this based on your GPU & CPU RAM
+    }
+    if device_type.lower() == "mps":
+        kwargs["n_gpu_layers"] = 1
+    if device_type.lower() == "cuda":
+        kwargs["n_gpu_layers"] = N_GPU_LAYERS  # set this based on your GPU
 
-        kwargs['stream'] = True
+    # Streaming support
+    if queue is not None:
+        print('Enabling streaming...')
+        # kwargs['stream'] = True
+        kwargs['callback_manager'] = CallbackManager([QueueCallbackHandler(queue)])
 
-        # Streaming support
-        if queue is not None:
-            kwargs['callback_manager'] = CallbackManager([QueueCallbackHandler(queue)])
+    llm = LlamaCpp(**kwargs)
+    if LLAMA_CPP_VERSION >= LLAMA_CPP_MIN_STREAMING_VERSION:
+        # Disable llama timings
+        llm.client.verbose = False
 
-        llm = LlamaCpp(**kwargs)
-        return llm
-    except Exception as e:
-        if "ggml" in model_basename:
-            logging.INFO("If you were using GGML model, LLAMA-CPP Dropped Support, Use GGUF Instead")
-        else:            
-            traceback.print_exc() 
-            raise e
-        return None
+    return llm
 
 
 def load_quantized_model_qptq(model_id, model_basename, device_type, logging):
@@ -116,7 +119,6 @@ def load_quantized_model_qptq(model_id, model_basename, device_type, logging):
         quantize_config=None,
     )
     return model, tokenizer
-
 
 def load_full_model(model_id, model_basename, device_type, logging):
     """

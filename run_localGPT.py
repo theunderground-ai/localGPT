@@ -41,7 +41,6 @@ from constants import (
     CHROMA_SETTINGS
 )
 
-
 def load_model(device_type, model_id, model_basename=None, LOGGING=logging, queue: Queue=None):
     """
     Select a model for text generation using the HuggingFace library.
@@ -68,13 +67,16 @@ def load_model(device_type, model_id, model_basename=None, LOGGING=logging, queu
             llm = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING, queue)
             return llm
         elif ".ggml" in model_basename.lower():
-            model, tokenizer = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING)
+            raise Exception("If you were using GGML model, LLAMA-CPP Dropped Support, Use GGUF Instead")
         elif ".awq" in model_basename.lower():
             model, tokenizer = load_quantized_model_awq(model_id, LOGGING)
         else:
             model, tokenizer = load_quantized_model_qptq(model_id, model_basename, device_type, LOGGING)
     else:
         model, tokenizer = load_full_model(model_id, model_basename, device_type, LOGGING)
+
+    if queue is not None:
+        raise "stream_response not implemented for the selected model type. Currently only gguf is supported."
 
     # Load configuration from the model to avoid warnings
     generation_config = GenerationConfig.from_pretrained(model_id)

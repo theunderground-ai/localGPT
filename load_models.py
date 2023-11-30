@@ -37,6 +37,9 @@ def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, loggin
     Returns:
     - LlamaCpp: An instance of the LlamaCpp model if successful, otherwise None.
 
+    Raises:
+        EnvironmentError: If streaming is enabled (queue is not None) for an unsupported model type.
+
     Notes:
     - The function uses the `hf_hub_download` function to download the model from the HuggingFace Hub.
     - The number of GPU layers is set based on the device type.
@@ -44,7 +47,7 @@ def load_quantized_model_gguf_ggml(model_id, model_basename, device_type, loggin
     
     logging.info("Using Llamacpp for GGUF/GGML quantized models")
     if queue is not None and LLAMA_CPP_VERSION < LLAMA_CPP_MIN_STREAMING_VERSION:
-        raise Exception(f"Earlier versions of llama_cpp don't support streaming. Current: {LLAMA_CPP_VERSION}. Known working version: ${LLAMA_CPP_MIN_STREAMING_VERSION}")
+        raise EnvironmentError(f"Earlier versions of llama_cpp don't support streaming. Current: {LLAMA_CPP_VERSION}. Known working version: ${LLAMA_CPP_MIN_STREAMING_VERSION}")
 
     model_path = hf_hub_download(
         repo_id=model_id,
